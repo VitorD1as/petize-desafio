@@ -1,0 +1,53 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: petize-desafio
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/gym_security?createDatabaseIfNotExist=true}
+    username: ${DATABASE_USERNAME:root}
+    password: ${DATABASE_PASSWORD:root}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+  jwt:
+    expiration: ${JWT_EXPIRATION:900000}
+    key: ${JWT_KEY:K5LuMxsARBNZ39iH5Kkw1cMAL=63-yCLsrR51p8IP-RlNPW-UQGUrRoLmA5ImJlYUcTLca$Ci5Uod9d9!uoaK9tokyGXx&#YElzVp&C1AyEsf=juChwT5KQ9VLALJdPQ7_DsSLXoLWew$Z403CNS=ctj53F2YA2VzU!v1#SV38JpG&w_5Tz-d8hL7df0GNBfp8Pes-_P_XnSj6bbPY0UWO7M-lJPfHhGn9tdera9G=C#2P6YiVdI3xI!$K2bC0POS6rw&f-Ep79zGdozOntMvzwnQrBNLpy8akqQTX6LMgJ7TxxX1cnUMBesFomJEQJ#_Ckwr-zf344dGz-0_LegDXXc}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+  info:
+    env:
+      enabled: true
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+
+info:
+  app:
+    name: petize-desafio
+    description: API de tarefas com JWT (desafio Petize)
+
+logging:
+  level:
+    root: INFO
+    com.vitor.petize_desafio: INFO

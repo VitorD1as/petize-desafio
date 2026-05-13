@@ -1,68 +1,58 @@
 package com.vitor.petize_desafio.business;
 
 import com.vitor.petize_desafio.api.dto.TarefasEstatisticasDto;
+import com.vitor.petize_desafio.business.tarefa.CurrentUserAccessor;
+import com.vitor.petize_desafio.business.tarefa.TarefaCancelamento;
+import com.vitor.petize_desafio.business.tarefa.TarefaFiltro;
+import com.vitor.petize_desafio.business.tarefa.TarefaRegras;
 import com.vitor.petize_desafio.infrastructure.dtos.TarefasDTO;
 import com.vitor.petize_desafio.infrastructure.entities.TarefasEntity;
 import com.vitor.petize_desafio.infrastructure.entities.UserEntity;
 import com.vitor.petize_desafio.infrastructure.enums.Prioridade;
 import com.vitor.petize_desafio.infrastructure.enums.Status;
 import com.vitor.petize_desafio.infrastructure.repository.TarefasRepository;
-import com.vitor.petize_desafio.infrastructure.specification.TarefaSpecification;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
-import org.springframework.data.domain.Pageable;
 import java.time.LocalDate;
 
 @Service
 @RequiredArgsConstructor
-@Transactional
 public class TarefasService {
+
     private final TarefasRepository tarefasRepository;
+    private final CurrentUserAccessor currentUserAccessor;
 
-    public TarefasDTO criarTarefas(TarefasDTO tarefasDTO){
-        var usuario = (UserEntity) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        TarefasEntity tarefasEntity = new TarefasEntity(tarefasDTO);
-        tarefasEntity.setUser(usuario);
-        tarefasRepository.save(tarefasEntity);
-        return new TarefasDTO(tarefasEntity);
+    @Transactional
+    public TarefasDTO criarTarefas(TarefasDTO tarefasDTO) {
+        UserEntity usuario = currentUserAccessor.usuarioAtual();
+        TarefasEntity nova = new TarefasEntity(tarefasDTO);
+        nova.setUser(usuario);
+        TarefasEntity salva = tarefasRepository.save(nova);
+        return new TarefasDTO(salva);
     }
 
-    public TarefasDTO atualizarStatus(TarefasDTO tarefasDTO){
-        var tarefas = buscar(tarefasDTO.id());
-
-        if(tarefasDTO.status() == Status.FINALIZADA){
-            boolean pendentes = tarefas.getSubTarefas() != null
-                    && tarefas.getSubTarefas().stream().anyMatch(st -> st.getStatus() != Status.FINALIZADA);
-            if(pendentes){
-                throw new IllegalStateException("Não é possível concluir uma tarefa com subtarefas pendentes!");
-            }
-        }
-        tarefas.setStatus(tarefasDTO.status());
-        return new TarefasDTO(tarefas);
+    @Transactional
+    public TarefasDTO atualizarStatus(TarefasDTO tarefasDTO) {
+        TarefasEntity tarefa = obterTarefaDoUsuarioAtual(tarefasDTO.id());
+        TarefaRegras.validarTransicaoPara(tarefa, tarefasDTO.status());
+        tarefa.setStatus(tarefasDTO.status());
+        return new TarefasDTO(tarefa);
     }
 
+    @Transactional
     public Page<TarefasDTO> filtrar(Status status, Prioridade prioridade, LocalDate dataVencimento, Pageable pageable) {
-
-        var usuario = (UserEntity) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-
-        Specification<TarefasEntity> specification = Specification.where(TarefaSpecification.doUsuario(usuario.getId()))
-                .and(TarefaSpecification.naoDeletado())
-                .and((TarefaSpecification.comStatus(status)))
-                .and(TarefaSpecification.comPrioridade(prioridade))
-                .and(TarefaSpecification.comDataVencimento(dataVencimento));
-        var page = tarefasRepository.findAll(specification, pageable);
-
-        return page.map(TarefasDTO::new);
+        UserEntity usuario = currentUserAccessor.usuarioAtual();
+        TarefaFiltro filtro = new TarefaFiltro(usuario.getId(), status, prioridade, dataVencimento);
+        return tarefasRepository.findAll(filtro.toSpecification(), pageable).map(TarefasDTO::new);
     }
 
+    @Transactional
     public TarefasEstatisticasDto estatisticas() {
-        var usuario = (UserEntity) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        Long userId = usuario.getId();
+        Long userId = currentUserAccessor.usuarioAtual().getId();
         return new TarefasEstatisticasDto(
                 tarefasRepository.countByUser_Id(userId),
                 tarefasRepository.countByUser_IdAndStatus(userId, Status.CRIADO),
@@ -72,23 +62,15 @@ public class TarefasService {
         );
     }
 
-    public void deletarTarefas(Long id){
-        var tarefas = buscar(id);
-        deletarSubTarefas(tarefas);
+    @Transactional
+    public void deletarTarefas(Long id) {
+        TarefasEntity tarefa = obterTarefaDoUsuarioAtual(id);
+        TarefaCancelamento.aplicarEmCascata(tarefa);
     }
 
-    private void deletarSubTarefas(TarefasEntity tarefasEntity){
-        tarefasEntity.setStatus(Status.CANCELADA);
-        if(tarefasEntity.getSubTarefas() != null){
-            for (TarefasEntity subTarefas : tarefasEntity.getSubTarefas()) {
-                deletarSubTarefas(subTarefas);
-            }
-        }
-    }
-
-    private TarefasEntity buscar(Long id) {
-        var usuario = (UserEntity) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        return tarefasRepository.findByIdAndUser_Id(id, usuario.getId())
+    private TarefasEntity obterTarefaDoUsuarioAtual(Long tarefaId) {
+        Long userId = currentUserAccessor.usuarioAtual().getId();
+        return tarefasRepository.findByIdAndUser_Id(tarefaId, userId)
                 .orElseThrow(TarefaNaoEncontradaException::new);
     }
 }

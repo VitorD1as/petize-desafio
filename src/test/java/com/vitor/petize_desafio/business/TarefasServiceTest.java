@@ -1,22 +1,19 @@
 package com.vitor.petize_desafio.business;
 
 import com.vitor.petize_desafio.api.dto.TarefasEstatisticasDto;
+import com.vitor.petize_desafio.business.tarefa.CurrentUserAccessor;
 import com.vitor.petize_desafio.infrastructure.dtos.TarefasDTO;
 import com.vitor.petize_desafio.infrastructure.entities.TarefasEntity;
 import com.vitor.petize_desafio.infrastructure.entities.UserEntity;
 import com.vitor.petize_desafio.infrastructure.enums.Prioridade;
 import com.vitor.petize_desafio.infrastructure.enums.Status;
 import com.vitor.petize_desafio.infrastructure.repository.TarefasRepository;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -34,30 +31,22 @@ class TarefasServiceTest {
     @Mock
     private TarefasRepository tarefasRepository;
 
+    @Mock
+    private CurrentUserAccessor currentUserAccessor;
+
     @InjectMocks
     private TarefasService tarefasService;
 
-    private UserEntity usuario;
-
-    @BeforeEach
-    void autenticarUsuario() {
-        usuario = UserEntity.builder()
-                .id(42L)
-                .nome("Usuário")
-                .email("user@test.com")
-                .senha("{bcrypt}hash")
-                .build();
-        var auth = new UsernamePasswordAuthenticationToken(usuario, null, usuario.getAuthorities());
-        SecurityContextHolder.getContext().setAuthentication(auth);
-    }
-
-    @AfterEach
-    void limparContexto() {
-        SecurityContextHolder.clearContext();
-    }
+    private final UserEntity usuario = UserEntity.builder()
+            .id(42L)
+            .nome("Usuário")
+            .email("user@test.com")
+            .senha("{bcrypt}hash")
+            .build();
 
     @Test
-    void criarTarefas_persisteComUsuarioDoContexto() {
+    void criarTarefas_persisteComUsuarioDoAccessor() {
+        when(currentUserAccessor.usuarioAtual()).thenReturn(usuario);
         TarefasDTO dto = new TarefasDTO(null, "Título", "Descrição", LocalDate.now(), Status.CRIADO, Prioridade.ALTA);
         when(tarefasRepository.save(any(TarefasEntity.class))).thenAnswer(invocation -> {
             TarefasEntity e = invocation.getArgument(0);
@@ -74,7 +63,8 @@ class TarefasServiceTest {
     }
 
     @Test
-    void atualizarStatus_finalizadaComSubtarefaPendente_lancaIllegalState() {
+    void atualizarStatus_finalizadaComSubtarefaPendente_lancaTransicaoStatusInvalida() {
+        when(currentUserAccessor.usuarioAtual()).thenReturn(usuario);
         TarefasEntity sub = new TarefasEntity();
         sub.setStatus(Status.EM_PROGRESSO);
         TarefasEntity pai = new TarefasEntity();
@@ -85,12 +75,13 @@ class TarefasServiceTest {
         TarefasDTO input = new TarefasDTO(1L, null, null, null, Status.FINALIZADA, null);
 
         assertThatThrownBy(() -> tarefasService.atualizarStatus(input))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(TransicaoStatusInvalidaException.class)
                 .hasMessageContaining("subtarefas");
     }
 
     @Test
-    void buscar_tarefaDeOutroUsuario_lancaTarefaNaoEncontrada() {
+    void atualizarStatus_tarefaDeOutroUsuario_lancaTarefaNaoEncontrada() {
+        when(currentUserAccessor.usuarioAtual()).thenReturn(usuario);
         when(tarefasRepository.findByIdAndUser_Id(7L, 42L)).thenReturn(Optional.empty());
 
         TarefasDTO input = new TarefasDTO(7L, null, null, null, Status.EM_PROGRESSO, null);
@@ -101,6 +92,7 @@ class TarefasServiceTest {
 
     @Test
     void estatisticas_retornaContagensDoRepositorio() {
+        when(currentUserAccessor.usuarioAtual()).thenReturn(usuario);
         when(tarefasRepository.countByUser_Id(42L)).thenReturn(10L);
         when(tarefasRepository.countByUser_IdAndStatus(42L, Status.CRIADO)).thenReturn(2L);
         when(tarefasRepository.countByUser_IdAndStatus(42L, Status.EM_PROGRESSO)).thenReturn(3L);
